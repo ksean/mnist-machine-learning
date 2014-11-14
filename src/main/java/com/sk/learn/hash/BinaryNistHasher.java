@@ -3,7 +3,7 @@ package com.sk.learn.hash;
 import ao.ai.ml.model.input.RealList;
 import com.sk.learn.NistInstance;
 
-public enum  BinaryNistHasher
+public enum BinaryNistHasher
         implements SemanticHasher<NistInstance>
 {
     INSTANCE;

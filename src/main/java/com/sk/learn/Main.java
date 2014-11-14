@@ -9,9 +9,15 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableTable;
+import com.google.common.collect.Table;
 import com.google.common.io.CharSink;
 import com.google.common.io.CharSource;
 import com.google.common.io.Files;
+import com.sk.learn.domain.BooleanMeasurement;
+import com.sk.learn.domain.FeatureVector;
+import com.sk.learn.domain.InputSample;
+import com.sk.learn.gen.FeatureLearner;
+import com.sk.learn.gen.tree.TreeFeatureLearner;
 import com.sk.learn.hash.BinaryNistHasher;
 import com.sk.learn.hash.IdentityNistHasher;
 import com.sk.learn.hash.SemanticHasher;
@@ -35,10 +41,98 @@ public class Main
 
     public static void main(String[] args) throws IOException {
         CharSource input = Files.asCharSource(
-                new File("D:/Downloads/optdigits.tra"),
+//                new File("D:/Downloads/optdigits.tra"),
+                new File("C:/Users/Sean/Downloads/optdigits.tra"),
                 Charsets.UTF_8);
 
-        List<NistInstance> instances = input.readLines().stream().map(line -> {
+        List<NistInstance> instances = readInstances(input);
+
+        FeatureLearner featureLearner = new TreeFeatureLearner();
+
+        for (NistInstance instance : instances) {
+            featureLearner.learn(toInputSample(instance));
+        }
+
+        GridLearner gridLearner = new GridLearner();
+        int learnedFeature = 0;
+
+        int learnIndex = 0;
+        for (NistInstance instance : instances) {
+            FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
+            RealList learningSample = toRealList(featureVector, learnedFeature);
+            gridLearner.learn(learningSample, instance.input());
+
+            if (learnIndex++ % 100 == 0) {
+                System.out.println("Learned: " + learnIndex);
+            }
+        }
+
+        File outputPath = new File(String.format("out/feature_%s.csv", System.currentTimeMillis()));
+        Files.createParentDirs(outputPath);
+
+        CharSink output = Files.asCharSink(
+                outputPath, Charsets.UTF_8);
+
+        try (PrintWriter out = new PrintWriter(output.openBufferedStream()))
+        {
+            Table<Integer, Integer, Integer> falsePredicted = gridLearner.predict(toRealList(false));
+            write(out, falsePredicted);
+
+            out.println();
+
+            Table<Integer, Integer, Integer> truePredicted = gridLearner.predict(toRealList(true));
+            write(out, truePredicted);
+
+//            long count = 0;
+//            for (NistInstance instance : instances) {
+//                FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
+//                RealList learningSample = toRealList(featureVector, learnedFeature);
+//
+//                out.println(count);
+//                write(out, instance.input());
+//                out.println("\n\n\n");
+//
+//                Table<Integer, Integer, Integer> predicted = gridLearner.predict(learningSample);
+//                write(out, predicted);
+//
+//                out.println("\n\n\n");
+//
+//                if (count++ % 100 == 0) {
+//                    System.out.println("Displayed: " + count);
+//                }
+//            }
+        }
+
+        //learnInstances(instances);
+    }
+
+
+    private static InputSample toInputSample(NistInstance instance) {
+        RealList pixels = BinaryNistHasher.INSTANCE.hash(instance);
+
+        BooleanMeasurement[] measurements = new BooleanMeasurement[pixels.size()];
+
+        for (int i = 0; i < measurements.length; i++) {
+            boolean isSet = pixels.get(i) == 0;
+            measurements[i] = BooleanMeasurement.create(isSet);
+        }
+
+        return InputSample.create(measurements);
+    }
+
+
+    private static RealList toRealList(FeatureVector features, int featureIndex) {
+        return toRealList(features.get(featureIndex));
+    }
+
+    private static RealList toRealList(boolean value) {
+        double[] values = {value ? 1 : 0};
+
+        return new RealList(values);
+    }
+
+    private static List<NistInstance> readInstances(CharSource input) throws IOException {
+        return input.readLines().stream().map(line -> {
             List<String> tokens = PARSER.splitToList(line);
             List<Integer> values = tokens.stream().map(Integer::parseInt).collect(Collectors.toList());
 
@@ -62,7 +156,9 @@ public class Main
                             .build(),
                     instanceOutput);
         }).collect(Collectors.toList());
+    }
 
+    private static void learnInstances(List<NistInstance> instances) throws IOException {
         SemanticHasher<NistInstance> hasher =
 //                IdentityNistHasher.INSTANCE;
                 BinaryNistHasher.INSTANCE;
@@ -105,22 +201,23 @@ public class Main
 
                 gridLearner.learn(semanticHash, instance.input());
 
-                for (Map<Integer, Integer> row : instance.input().rowMap().values()) {
-                    String rowOutput = FORMATTER.join(row.values());
-                    out.println(rowOutput);
-                }
+                write(out, instance.input());
 
                 out.println();
 
-                for (Map<Integer, Integer> row : gridLearner.predict(semanticHash).rowMap().values()) {
-                    String rowOutput = FORMATTER.join(row.values());
-                    out.println(rowOutput);
-                }
+                write(out, gridLearner.predict(semanticHash));
 
                 if (count.incrementAndGet() % 100 == 0) {
                     System.out.println(count.longValue() + "\t" + LocalDateTime.now());
                 }
             });
+        }
+    }
+
+    private static void write(PrintWriter out, Table<Integer, Integer, Integer> grid) {
+        for (Map<Integer, Integer> row : grid.rowMap().values()) {
+            String rowOutput = FORMATTER.join(row.values());
+            out.println(rowOutput);
         }
     }
 }
