@@ -12,7 +12,7 @@
 
     <properties>
         <guava.version>18.0</guava.version>
-        <auto-value.version>1.0-rc1</auto-value.version>
+        <auto-value.version>1.0-rc2</auto-value.version>
         <ao-ai.version>0.0.7</ao-ai.version>
 
         <java.version>1.8</java.version>

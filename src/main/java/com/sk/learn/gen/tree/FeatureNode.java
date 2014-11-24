@@ -2,15 +2,14 @@ package com.sk.learn.gen.tree;
 
 import com.google.common.collect.Ordering;
 import com.sk.learn.domain.BooleanMeasurement;
-import com.sk.learn.domain.InputSample;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 public class FeatureNode {
-    private final FeatureTree tree;
-    private final int id;
+    private final UUID id;
 
     private SubSampleStat sampleStat = new SubSampleStat();
 
@@ -19,12 +18,11 @@ public class FeatureNode {
     private Optional<FeatureNode> rightChild = Optional.empty();
 
 
-    public FeatureNode(FeatureTree tree, int id) {
-        this.tree = tree;
-        this.id = id;
+    public FeatureNode() {
+        this.id = UUID.randomUUID();
     }
 
-    public int identifyLeaf(InputSubSample input) {
+    public UUID identifyLeaf(InputSubSample input) {
         if (isLeaf()) {
             return id;
         }
@@ -67,7 +65,7 @@ public class FeatureNode {
 
         sampleStat.accumulate(input);
 
-        if (sampleStat.sampleSize() > 32) {
+        if (sampleStat.sampleSize() > 250) {
             Integer splitIndex = chooseIndexToSplitOn();
             splitOn(splitIndex);
         }
@@ -77,8 +75,8 @@ public class FeatureNode {
     private void splitOn(int index) {
         splitIndex = Optional.of(index);
 
-        leftChild = Optional.of(tree.nextChild());
-        rightChild = Optional.of(tree.nextChild());
+        leftChild = Optional.of(new FeatureNode());
+        rightChild = Optional.of(new FeatureNode());
     }
 
 
@@ -99,7 +97,7 @@ public class FeatureNode {
         }
     }
 
-    public int id() {
+    public UUID id() {
         return id;
     }
 }

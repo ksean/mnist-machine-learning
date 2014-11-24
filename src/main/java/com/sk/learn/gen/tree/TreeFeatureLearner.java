@@ -5,27 +5,56 @@ import com.sk.learn.domain.FeatureVector;
 import com.sk.learn.domain.InputSample;
 import com.sk.learn.gen.FeatureLearner;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class TreeFeatureLearner implements FeatureLearner
 {
-    private FeatureTree tree;
+    private List<FeatureTree> trees;
 
 
     public TreeFeatureLearner() {
-        tree = new FeatureTree();
+        this(64);
+    }
+
+    public TreeFeatureLearner(int size) {
+        trees = new ArrayList<>();
+
+        for (int i = 0; i < size; i++) {
+            trees.add(new FeatureTree());
+        }
     }
 
 
     @Override
     public void learn(InputSample sample) {
-        tree.learn(sample);
+        trees.forEach(tree -> tree.learn(sample));
     }
 
 
     @Override
     public FeatureVector extract(InputSample input) {
-        int trueIndex = tree.matchingLeafIndex(input);
+        List<FeatureVector> vectors = new ArrayList<>();
 
-        return FeatureVector.createSingleFeature(tree.leaves().size(), trueIndex);
+        for (FeatureTree tree : trees) {
+            int trueIndex = tree.matchingLeafIndex(input);
+            FeatureVector vector = FeatureVector.createSingleFeature(tree.leafCount(), trueIndex);
+            vectors.add(vector);
+        }
+
+        int featureCount = vectors.stream().mapToInt(FeatureVector::size).sum();
+
+        boolean[] concat = new boolean[featureCount];
+
+        int index = 0;
+        for (FeatureVector vector : vectors) {
+            for (int i = 0; i < vector.size(); i++) {
+                concat[index] = vector.get(i);
+                index++;
+            }
+        }
+
+        return FeatureVector.create(concat);
     }
 
 }

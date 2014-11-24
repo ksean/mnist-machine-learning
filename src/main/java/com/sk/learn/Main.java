@@ -19,11 +19,11 @@ import com.sk.learn.domain.InputSample;
 import com.sk.learn.gen.FeatureLearner;
 import com.sk.learn.gen.tree.TreeFeatureLearner;
 import com.sk.learn.hash.BinaryNistHasher;
-import com.sk.learn.hash.IdentityNistHasher;
 import com.sk.learn.hash.SemanticHasher;
 
-import java.io.*;
-import java.time.DateTimeException;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -42,7 +42,7 @@ public class Main
     public static void main(String[] args) throws IOException {
         CharSource input = Files.asCharSource(
 //                new File("D:/Downloads/optdigits.tra"),
-                new File("C:/Users/Sean/Downloads/optdigits.tra"),
+                new File("C:/~/data/optdigits.tra"),
                 Charsets.UTF_8);
 
         List<NistInstance> instances = readInstances(input);
@@ -54,12 +54,12 @@ public class Main
         }
 
         GridLearner gridLearner = new GridLearner();
-        int learnedFeature = 0;
+//        int learnedFeature = 0;
 
         int learnIndex = 0;
         for (NistInstance instance : instances) {
             FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
-            RealList learningSample = toRealList(featureVector, learnedFeature);
+            RealList learningSample = toRealList(featureVector);
             gridLearner.learn(learningSample, instance.input());
 
             if (learnIndex++ % 100 == 0) {
@@ -75,32 +75,32 @@ public class Main
 
         try (PrintWriter out = new PrintWriter(output.openBufferedStream()))
         {
-            Table<Integer, Integer, Integer> falsePredicted = gridLearner.predict(toRealList(false));
-            write(out, falsePredicted);
+//            Table<Integer, Integer, Integer> falsePredicted = gridLearner.predict(toRealList(false));
+//            write(out, falsePredicted);
+//
+//            out.println();
+//
+//            Table<Integer, Integer, Integer> truePredicted = gridLearner.predict(toRealList(true));
+//            write(out, truePredicted);
 
-            out.println();
+            long count = 0;
+            for (NistInstance instance : instances) {
+                FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
+                RealList learningSample = toRealList(featureVector);
 
-            Table<Integer, Integer, Integer> truePredicted = gridLearner.predict(toRealList(true));
-            write(out, truePredicted);
+                out.println(count);
+                write(out, instance.input());
+                out.println("\n");
 
-//            long count = 0;
-//            for (NistInstance instance : instances) {
-//                FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
-//                RealList learningSample = toRealList(featureVector, learnedFeature);
-//
-//                out.println(count);
-//                write(out, instance.input());
-//                out.println("\n\n\n");
-//
-//                Table<Integer, Integer, Integer> predicted = gridLearner.predict(learningSample);
-//                write(out, predicted);
-//
-//                out.println("\n\n\n");
-//
-//                if (count++ % 100 == 0) {
-//                    System.out.println("Displayed: " + count);
-//                }
-//            }
+                Table<Integer, Integer, Integer> predicted = gridLearner.predict(learningSample);
+                write(out, predicted);
+
+                out.println("\n\n\n");
+
+                if (count++ % 100 == 0) {
+                    System.out.println("Displayed: " + count);
+                }
+            }
         }
 
         //learnInstances(instances);
@@ -121,13 +121,11 @@ public class Main
     }
 
 
-    private static RealList toRealList(FeatureVector features, int featureIndex) {
-        return toRealList(features.get(featureIndex));
-    }
-
-    private static RealList toRealList(boolean value) {
-        double[] values = {value ? 1 : 0};
-
+    private static RealList toRealList(FeatureVector features) {
+        double[] values = new double[features.size()];
+        for (int i = 0; i < features.size(); i++) {
+            values[i] = (features.get(i) ? 1 : 0);
+        }
         return new RealList(values);
     }
 
