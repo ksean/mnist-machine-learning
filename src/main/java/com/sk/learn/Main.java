@@ -135,8 +135,8 @@ public class Main
         return new RealList(values);
     }
 
-    private static final Pattern label = Pattern.compile(" (\\d)");
-    private static final Pattern row = Pattern.compile("([0|1]{32})");
+    private static final Pattern label = Pattern.compile("^ (\\d)$");
+    private static final Pattern row = Pattern.compile("^([0|1]{32})$");
 
     private static List<NistInstance> readOrigInstances(CharSource input) throws IOException {
         int labelValue;
