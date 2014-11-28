@@ -1,22 +1,17 @@
 package com.sk.learn.gen.tree;
 
 
-import ao.graph.Graph;
-import ao.graph.impl.common.SimpleAbsDomain;
-import ao.graph.impl.fast.BufferedFastGraph;
-import ao.graph.struct.DataAndWeight;
-import ao.graph.struct.Endpoints;
-import ao.graph.struct.NodeDataPair;
-import ao.graph.user.EdgeWeight;
-import ao.prophet.impl.cluster.Cluster;
-import ao.prophet.impl.cluster.InternalCluster;
-import ao.prophet.impl.cluster.LeafCluster;
-import ao.util.math.stats.Stats;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.*;
 import com.sk.learn.domain.FeatureVector;
 import com.sk.learn.domain.InputSample;
 import com.sk.learn.gen.FeatureLearner;
+import org.apache.commons.math3.exception.MaxCountExceededException;
+import org.apache.commons.math3.linear.EigenDecomposition;
+import org.apache.commons.math3.linear.LUDecomposition;
+import org.apache.commons.math3.linear.MatrixUtils;
+import org.apache.commons.math3.linear.RealMatrix;
+import org.apache.commons.math3.ml.clustering.*;
 
 import java.util.*;
 
@@ -26,11 +21,12 @@ public class TreeFeatureLearner implements FeatureLearner
 
     private Multiset<UUID> hitCounts;
     private Table<UUID, UUID, Integer> coActivations;
-    private Optional<Cluster<UUID>> clusters;
+    private Map<UUID, Integer> clusters;
+    private List<Integer> clusterSizes;
 
 
     public TreeFeatureLearner() {
-        this(64);
+        this(16 * 3);
     }
 
     public TreeFeatureLearner(int size) {
@@ -38,8 +34,9 @@ public class TreeFeatureLearner implements FeatureLearner
 
         hitCounts = HashMultiset.create();
         coActivations = HashBasedTable.create();
-        clusters = Optional.empty();
-        
+        clusters = new HashMap<>();
+        clusterSizes = new ArrayList<>();
+
         for (int i = 0; i < size; i++) {
             trees.add(new FeatureTree());
         }
@@ -66,227 +63,154 @@ public class TreeFeatureLearner implements FeatureLearner
             }
         }
 
-        clusters = Optional.empty();
+        clusters = new HashMap<>();
+        clusterSizes = new ArrayList<>();
     }
 
 
     @Override
     public FeatureVector extract(InputSample input) {
-        if (! clusters.isPresent()) {
-            Collection<UUID> leaves = new ArrayList<>();
-            for (FeatureTree tree : trees) {
-                leaves.addAll(tree.leafIds());
-            }
+        int featureCount = 64;
 
-            hitCounts.retainAll(leaves);
-            coActivations.columnKeySet().retainAll(leaves);
-            coActivations.rowKeySet().retainAll(leaves);
-
-            final Table<UUID, UUID, Double> similarities = HashBasedTable.create();
-            for (Table.Cell<UUID, UUID, Integer> c : coActivations.cellSet()) {
-                int minHits = Math.min(hitCounts.count(c.getRowKey()), hitCounts.count(c.getColumnKey()));
-                double similarity = (double) c.getValue() / minHits;
-                similarities.put(c.getRowKey(), c.getColumnKey(), Stats.accountForStatisticalError(similarity, minHits));
-//                similarities.put(c.getRowKey(), c.getColumnKey(), similarity);
-            }
-
-
-            class ComponentEdgeWeight implements EdgeWeight<ComponentEdgeWeight> {
-                private Set<UUID> left = new HashSet<>();
-                private Set<UUID> right = new HashSet<>();
-
-                public ComponentEdgeWeight() {}
-                public ComponentEdgeWeight(UUID leftLeaf, UUID rightLeaf) {
-                    left.add(leftLeaf);
-                    right.add(rightLeaf);
-                }
-
-                @Override
-                public ComponentEdgeWeight mergeWith(ComponentEdgeWeight componentEdgeWeight) {
-                    if (componentEdgeWeight.left.isEmpty() && componentEdgeWeight.right.isEmpty()) {
-                        return this;
-                    } else if (left.isEmpty() && right.isEmpty()) {
-                        return componentEdgeWeight;
-                    }
-
-//                    if (left.isEmpty() || right.isEmpty() || componentEdgeWeight.left.isEmpty() || componentEdgeWeight.right.isEmpty()) {
-//                        System.out.println("foo");
-//                    }
-
-//                    if (! (left.isEmpty() || right.isEmpty() || componentEdgeWeight.left.isEmpty() || componentEdgeWeight.right.isEmpty())) {
-//                        System.out.println("foo");
-//                    }
-
-                    ComponentEdgeWeight merged = new ComponentEdgeWeight();
-
-                    merged.left.addAll(left);
-                    merged.right.addAll(right);
-
-                    if (! Sets.intersection(left, componentEdgeWeight.left).isEmpty() || ! Sets.intersection(right, componentEdgeWeight.right).isEmpty()) {
-                        merged.left.addAll(componentEdgeWeight.left);
-                        merged.right.addAll(componentEdgeWeight.right);
-                    } else if (! Sets.intersection(left, componentEdgeWeight.right).isEmpty() || ! Sets.intersection(right, componentEdgeWeight.left).isEmpty()) {
-                        merged.left.addAll(componentEdgeWeight.right);
-                        merged.right.addAll(componentEdgeWeight.left);
-                    } else {
-                        System.out.println("wha?");
-                        // arbitrary ?
-                        merged.left.addAll(componentEdgeWeight.left);
-                        merged.right.addAll(componentEdgeWeight.right);
-                    }
-
-                    if (! Sets.intersection(merged.left, merged.right).isEmpty()) {
-                        System.out.println("wow!");
-                    }
-
-                    return merged;
-                }
-
-                private double compare(UUID a, UUID b) {
-                    UUID lo = Ordering.natural().min(a, b);
-                    UUID hi = Ordering.natural().max(a, b);
-                    Double sim = similarities.get(lo, hi);
-                    return MoreObjects.firstNonNull(sim, 0.0);
-                }
-
-                @Override
-                public float asFloat() {
-                    if (left.isEmpty() || right.isEmpty()) {
-                        System.out.println("bar");
-                    }
-
-                    double sum = 0;
-                    int count = 0;
-
-                    for (UUID l : left) {
-                        for (UUID r : right) {
-                            sum += compare(l, r);
-                            count++;
-                        }
-                    }
-
-                    return (float) (sum / count);
-                }
-
-                @Override
-                public String toString() {
-                    return String.valueOf(asFloat());
-                }
-            }
-
-
-            Graph<Cluster<UUID>, ComponentEdgeWeight> graph = new BufferedFastGraph<>(
-                    new SimpleAbsDomain<>(1024),
-                    new ComponentEdgeWeight());
-
-
-            Map<UUID, LeafCluster<UUID>> leafClusters = new HashMap<>();
-            for (UUID leaf : leaves) {
-                LeafCluster<UUID> leafCluster = new LeafCluster<>(leaf);
-                graph.add(leafCluster);
-                leafClusters.put(leaf, leafCluster);
-            }
-
-            for (Table.Cell<UUID, UUID, Integer> c : coActivations.cellSet()) {
-                graph.join(
-                        leafClusters.get(c.getRowKey()),
-                        leafClusters.get(c.getColumnKey()),
-                        new ComponentEdgeWeight(c.getRowKey(), c.getColumnKey()));
-            }
-
-            Cluster<UUID> root = agglomerativeClusterAnalysis(graph);
-            System.out.println(root);
-            clusters = Optional.of(root);
+        if (clusters.isEmpty()) {
+            cluster(featureCount);
         }
 
-
-        List<FeatureVector> vectors = new ArrayList<>();
-
+        int[] hits = new int[featureCount];
         for (FeatureTree tree : trees) {
-            int trueIndex = tree.matchingLeafIndex(input);
-            FeatureVector vector = FeatureVector.createSingleFeature(tree.leafCount(), trueIndex);
-            vectors.add(vector);
+            UUID activeLeaf = tree.matchingLeafId(input);
+
+            int cluster = clusters.get(activeLeaf);
+            hits[cluster]++;
         }
 
-//        int featureCount = vectors.stream().mapToInt(FeatureVector::size).sum();
-//        boolean[] activations = new boolean[featureCount];
+        boolean[] activations = new boolean[featureCount];
+        for (int i = 0; i < featureCount; i++) {
+            int clusterSize = clusterSizes.get(i);
 
-        int size = 8;
-        int[] hits = new int[size];
-//        int[] misses = new int[size];
-
-        int index = 0;
-        for (FeatureVector vector : vectors) {
-            for (int i = 0; i < vector.size(); i++) {
-                //activations[index] = vector.get(i);
-
-                int modIndex = index % size;
-                if (vector.get(i)) {
-                    hits[modIndex]++;
-                }/* else {
-                    misses[modIndex]++;
-                }*/
-
-                index++;
-            }
-        }
-
-        int threshold = trees.size() / size;
-        boolean[] activations = new boolean[size];
-        for (int i = 0; i < size; i++) {
-            activations[i] = hits[i] > threshold;
+            activations[i] =
+                    hits[i] >= (clusterSize / 2);
         }
 
         return FeatureVector.create(activations);
     }
 
 
-    private <I, W extends EdgeWeight<W>> Cluster<I> agglomerativeClusterAnalysis(
-            Graph<Cluster<I>, W> graph)
-    {
-        //int n = 0;
-        InternalCluster<I> root = null;
-        while (true)
-        {
-            //System.out.println("n = " + (n++));
-            Endpoints<Cluster<I>, W> mostRelatedClusters =
-                    graph.nodesIncidentHeaviestEdge();
+    private void cluster(int featureCount) {
+        int nextIndex = 0;
+        Map<UUID, Integer> leaveIndexes = new HashMap<>();
+        for (FeatureTree tree : trees) {
+            for (UUID leaf : tree.leafIds()) {
+                leaveIndexes.put(leaf, nextIndex++);
+            }
+        }
 
-            NodeDataPair<Cluster<I>> toMerge;
-            if (mostRelatedClusters == null)
-            {
-                toMerge = graph.antiEdge();
+        hitCounts.retainAll(leaveIndexes.keySet());
+        coActivations.columnKeySet().retainAll(leaveIndexes.keySet());
+        coActivations.rowKeySet().retainAll(leaveIndexes.keySet());
 
-                if (toMerge == null && root == null)
-                {
-                    return null;
+        final Table<UUID, UUID, Double> similarities = HashBasedTable.create();
+        for (Table.Cell<UUID, UUID, Integer> c : coActivations.cellSet()) {
+            int minHits = Math.min(hitCounts.count(c.getRowKey()), hitCounts.count(c.getColumnKey()));
+            double similarity = (double) c.getValue() / minHits;
+            similarities.put(c.getRowKey(), c.getColumnKey(), accountForStatisticalError(similarity, minHits));
+        }
+
+        double[][] similarityMatrix = new double[leaveIndexes.size()][leaveIndexes.size()];
+        for (Table.Cell<UUID, UUID, Double> similarity : similarities.cellSet()) {
+            int rowIndex = leaveIndexes.get(similarity.getRowKey());
+            int columnIndex = leaveIndexes.get(similarity.getColumnKey());
+            similarityMatrix[rowIndex][columnIndex] = similarity.getValue();
+            similarityMatrix[columnIndex][rowIndex] = similarity.getValue();
+        }
+        for (int i = 0; i < leaveIndexes.size(); i++) {
+            similarityMatrix[i][i] = 1;
+        }
+
+        double[][] normalizerMatrix = new double[leaveIndexes.size()][leaveIndexes.size()];
+        for (int i = 0; i < leaveIndexes.size(); i++) {
+            double sum = 0;
+            for (int j = 0; j < leaveIndexes.size(); j++) {
+                sum += similarityMatrix[i][j];
+            }
+            normalizerMatrix[i][i] = sum;
+        }
+
+        RealMatrix sim = MatrixUtils.createRealMatrix(similarityMatrix);
+        RealMatrix norm = MatrixUtils.createRealMatrix(normalizerMatrix);
+
+        RealMatrix normInverse = new LUDecomposition(norm).getSolver().getInverse();
+        RealMatrix randomWalkNormalizedLaplacian = normInverse.multiply(sim);
+
+        EigenDecomposition eigen;// = new EigenDecomposition(randomWalkNormalizedLaplacian);
+        for (int i = 0;;) {
+            Random random = new Random();
+
+            try {
+                eigen = new EigenDecomposition(randomWalkNormalizedLaplacian);
+                break;
+            } catch (MaxCountExceededException ignored) {
+                randomWalkNormalizedLaplacian.setEntry(
+                        random.nextInt(leaveIndexes.size()),
+                        random.nextInt(leaveIndexes.size()),
+                        random.nextDouble() - 0.5);
+
+                System.out.println("trying eingen decomp " + i++);
+                if (i >= 100) {
+                    throw ignored;
                 }
             }
-            else
-            {
-//                // not sure if this ever made much sense
-//                if (mostRelatedClusters.weight().isLighterThanUnrelated())
-//                {
-//                    toMerge = graph.antiEdge();
-//                    if (toMerge == null)
-//                    {
-//                        toMerge = mostRelatedClusters.nodes();
-//                    }
-//                }
-//                else
-//                {
-                    toMerge = mostRelatedClusters.nodes();
-//                }
+        }
+
+        class FeatureLeaf extends DoublePoint {
+            public final UUID leaf;
+            public FeatureLeaf(double[] point, UUID leaf) {
+                super(point);
+                this.leaf = leaf;
             }
 
-            if (toMerge == null) break;
-
-            DataAndWeight<Cluster<I>, W> merged =
-                    graph.merge( toMerge.dataA(), toMerge.dataB() );
-
-            root = (InternalCluster<I>) merged.data();
-//            root.relationBetweenChildren( merged.weight() );
+            @Override
+            public String toString() {
+                return leaf + "|" + super.toString();
+            }
         }
-        return root;
+
+        List<FeatureLeaf> points = new ArrayList<>();
+        for (Map.Entry<UUID, Integer> e : leaveIndexes.entrySet()) {
+            int index = e.getValue();
+            double[] component = new double[featureCount];
+            for (int k = 0; k < featureCount; k++) {
+                component[k] = eigen.getEigenvector(k).getEntry(index);
+            }
+            points.add(new FeatureLeaf(component, e.getKey()));
+        }
+
+        Clusterer<FeatureLeaf> clusterer = new MultiKMeansPlusPlusClusterer<>(
+                new KMeansPlusPlusClusterer<>(featureCount, 32_000), 128);
+        List<? extends Cluster<FeatureLeaf>> centroids = clusterer.cluster(points);
+        for (int i = 0; i < centroids.size(); i++) {
+            Cluster<FeatureLeaf> centroid = centroids.get(i);
+            System.out.println("Cluster " + i + " has " + centroid.getPoints().size());
+
+            clusterSizes.add(centroid.getPoints().size());
+            for (FeatureLeaf l : centroid.getPoints()) {
+                clusters.put(l.leaf, i);
+            }
+        }
+    }
+
+
+
+    public static double accountForStatisticalError(
+            double quantity,
+            int    dataPointCount)
+    {
+        double statisticalErrorPercent =
+                Math.sqrt(dataPointCount) / (dataPointCount + 1);
+
+        double statisticalError =
+                statisticalErrorPercent * quantity;
+
+        return quantity - statisticalError;
     }
 }
