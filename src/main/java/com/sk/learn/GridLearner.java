@@ -2,6 +2,7 @@ package com.sk.learn;
 
 
 import ao.ai.classify.online.forest.OnlineRandomForest;
+import ao.ai.classify.online.forest.Param;
 import ao.ai.ml.model.algo.OnlineMultiLearner;
 import ao.ai.ml.model.input.RealList;
 import ao.ai.ml.model.output.MultiClass;
@@ -23,7 +24,15 @@ public class GridLearner
             if (learners.contains(c.getRowKey(), c.getColumnKey())) {
                 cellLearner = learners.get(c.getRowKey(), c.getColumnKey());
             } else {
-                cellLearner = new OnlineRandomForest();
+                cellLearner = new OnlineRandomForest(
+                        64,
+                        new Param(
+                            5,
+                            10,
+                            (int) Math.ceil(
+                                    Math.sqrt( input.size() )),
+                            0)
+                );
                 learners.put(c.getRowKey(), c.getColumnKey(), cellLearner);
             }
 

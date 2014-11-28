@@ -26,7 +26,7 @@ public class TreeFeatureLearner implements FeatureLearner
 
 
     public TreeFeatureLearner() {
-        this(16 * 3);
+        this(16 * 3 + 1);
     }
 
     public TreeFeatureLearner(int size) {
@@ -70,7 +70,7 @@ public class TreeFeatureLearner implements FeatureLearner
 
     @Override
     public FeatureVector extract(InputSample input) {
-        int featureCount = 64;
+        int featureCount = 30;
 
         if (clusters.isEmpty()) {
             cluster(featureCount);
@@ -89,7 +89,8 @@ public class TreeFeatureLearner implements FeatureLearner
             int clusterSize = clusterSizes.get(i);
 
             activations[i] =
-                    hits[i] >= (clusterSize / 2);
+//                    hits[i] >= (clusterSize / 2);
+                hits[i] > 0;
         }
 
         return FeatureVector.create(activations);
@@ -150,10 +151,9 @@ public class TreeFeatureLearner implements FeatureLearner
                 eigen = new EigenDecomposition(randomWalkNormalizedLaplacian);
                 break;
             } catch (MaxCountExceededException ignored) {
+                int index = random.nextInt(leaveIndexes.size());
                 randomWalkNormalizedLaplacian.setEntry(
-                        random.nextInt(leaveIndexes.size()),
-                        random.nextInt(leaveIndexes.size()),
-                        random.nextDouble() - 0.5);
+                        index, index, 1);
 
                 System.out.println("trying eingen decomp " + i++);
                 if (i >= 100) {

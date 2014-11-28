@@ -25,10 +25,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class Main
@@ -42,10 +45,13 @@ public class Main
     public static void main(String[] args) throws IOException {
         CharSource input = Files.asCharSource(
 //                new File("D:/Downloads/optdigits.tra"),
-                new File("C:/~/data/optdigits.tra"),
+//                new File("C:/~/data/optdigits.tra"),
+                new File("C:/~/data/optdigits-orig.tra"),
                 Charsets.UTF_8);
 
-        List<NistInstance> instances = readInstances(input);
+        List<NistInstance> instances =
+//                readInstances(input);
+                readOrigInstances(input);
 
         FeatureLearner featureLearner = new TreeFeatureLearner();
 
@@ -127,6 +133,43 @@ public class Main
             values[i] = (features.get(i) ? 1 : 0);
         }
         return new RealList(values);
+    }
+
+    private static final Pattern label = Pattern.compile(" (\\d)");
+    private static final Pattern row = Pattern.compile("([0|1]{32})");
+
+    private static List<NistInstance> readOrigInstances(CharSource input) throws IOException {
+        int labelValue;
+        List<NistInstance> instances = new ArrayList<>();
+
+        int nextGridRow = 0;
+        boolean[][] grid = new boolean[32][32];
+
+        for (String line : input.readLines()) {
+            Matcher lineMatcher = label.matcher(line);
+            if (lineMatcher.find()) {
+                labelValue = Integer.valueOf(lineMatcher.group(1));
+
+                instances.add(
+                        NistInstance.create(grid, labelValue));
+
+                nextGridRow = 0;
+                continue;
+            }
+
+            Matcher rowMatcher = row.matcher(line);
+            if (rowMatcher.find()) {
+                String rowValue = rowMatcher.group(1);
+                for (int i = 0; i < 32; i++) {
+                    grid[nextGridRow][i] = (rowValue.charAt(i) == '1');
+                }
+
+                nextGridRow++;
+            }
+
+        }
+
+        return instances;
     }
 
     private static List<NistInstance> readInstances(CharSource input) throws IOException {
