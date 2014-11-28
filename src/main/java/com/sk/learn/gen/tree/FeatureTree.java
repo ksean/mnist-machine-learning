@@ -3,8 +3,10 @@ package com.sk.learn.gen.tree;
 import com.google.common.collect.ImmutableList;
 import com.sk.learn.domain.InputSample;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class FeatureTree
 {
@@ -17,24 +19,31 @@ public class FeatureTree
         root = new FeatureNode();
     }
 
-    public void learn(InputSample sample) {
+    public UUID learn(InputSample sample) {
         leavesCache = Optional.empty();
-        root.learn(InputSubSample.create(sample));
+        return root.learn(InputSubSample.create(sample));
     }
 
-    public int matchingLeafIndex(InputSample sample) {
-        UUID matchingLeafId = root.identifyLeaf(InputSubSample.create(sample));
+    public UUID matchingLeafId(InputSample sample) {
+        return root.identifyLeaf(InputSubSample.create(sample));
+    }
 
+    public int indexOfLeaf(UUID id) {
         int index = 0;
         for (FeatureNode leaf : leaves()) {
-            if (leaf.id().equals(matchingLeafId)) {
+            if (leaf.id().equals(id)) {
                 return index;
             }
 
             index++;
         }
 
-        throw new Error();
+        return -1;
+    }
+
+    public int matchingLeafIndex(InputSample sample) {
+        UUID matchingLeafId = root.identifyLeaf(InputSubSample.create(sample));
+        return indexOfLeaf(matchingLeafId);
     }
 
 
@@ -53,5 +62,9 @@ public class FeatureTree
         ImmutableList<FeatureNode> leaves = buffer.build();
         leavesCache = Optional.of(leaves);
         return leaves;
+    }
+
+    public Collection<UUID> leafIds() {
+        return leaves().stream().map(FeatureNode::id).collect(Collectors.toList());
     }
 }

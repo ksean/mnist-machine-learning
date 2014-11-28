@@ -31,11 +31,12 @@ public class FeatureNode {
     }
 
 
-    public void learn(InputSubSample input) {
+    public UUID learn(InputSubSample input) {
         if (isLeaf()) {
             accumulateStats(input);
+            return id;
         } else {
-            learnInChildNodes(input);
+            return learnInChildNodes(input);
         }
     }
 
@@ -44,12 +45,12 @@ public class FeatureNode {
     }
 
 
-    private void learnInChildNodes(InputSubSample input) {
+    private UUID learnInChildNodes(InputSubSample input) {
         FeatureNode matchingChild = matchingChild(input);
 
         InputSubSample remainingInput = input.remove(splitIndex.get());
 
-        matchingChild.learn(remainingInput);
+        return matchingChild.learn(remainingInput);
     }
 
     private FeatureNode matchingChild(InputSubSample input) {
