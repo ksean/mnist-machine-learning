@@ -24,7 +24,7 @@ public class GridLearner
                 cellLearner = learners.get(c.getRowKey(), c.getColumnKey());
             } else {
                 cellLearner = new OnlineRandomForest(
-                        32
+                        64
 //                        ,
 //                        new Param(
 //                            2,

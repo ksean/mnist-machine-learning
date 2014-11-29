@@ -1,6 +1,5 @@
 package com.sk.learn.gen.tree;
 
-import com.google.common.collect.Ordering;
 import com.sk.learn.domain.BooleanMeasurement;
 
 import java.util.Map;
@@ -81,11 +80,19 @@ public class FeatureNode {
     }
 
 
-    private Integer chooseIndexToSplitOn() {
-        return Ordering.natural()
-                .onResultOf((Map.Entry<Integer, Double> entry) -> entry.getValue() * Math.random())
-                .max(sampleStat.entropies().entrySet())
-                .getKey();
+    private int chooseIndexToSplitOn() {
+        double maxWeight = -1;
+        int maxWeightIndex = -1;
+
+        for (Map.Entry<Integer, Double> e : sampleStat.entropies().entrySet()) {
+            double weight = Math.random() * e.getValue();
+            if (weight > maxWeight) {
+                maxWeight = weight;
+                maxWeightIndex = e.getKey();
+            }
+        }
+
+        return maxWeightIndex;
     }
 
 

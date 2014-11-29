@@ -91,6 +91,14 @@ public class Main
 
             long count = 0;
             for (NistInstance instance : instances) {
+                if (count++ % 100 == 0) {
+                    System.out.println("Displayed: " + count);
+                }
+
+                if (Math.random() > 0.1) {
+                    continue;
+                }
+
                 FeatureVector featureVector = featureLearner.extract(toInputSample(instance));
                 RealList learningSample = toRealList(featureVector);
 
@@ -102,10 +110,6 @@ public class Main
                 write(out, predicted);
 
                 out.println("\n\n\n");
-
-                if (count++ % 100 == 0) {
-                    System.out.println("Displayed: " + count);
-                }
             }
         }
 
@@ -114,7 +118,8 @@ public class Main
 
 
     private static InputSample toInputSample(NistInstance instance) {
-        RealList pixels = BinaryNistHasher.INSTANCE.hash(instance);
+        RealList pixels =
+                instance.inputRealList();
 
         BooleanMeasurement[] measurements = new BooleanMeasurement[pixels.size()];
 

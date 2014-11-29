@@ -8,7 +8,6 @@ import com.sk.learn.domain.InputSample;
 import com.sk.learn.gen.FeatureLearner;
 import org.apache.commons.math3.exception.MaxCountExceededException;
 import org.apache.commons.math3.linear.EigenDecomposition;
-import org.apache.commons.math3.linear.LUDecomposition;
 import org.apache.commons.math3.linear.MatrixUtils;
 import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.ml.clustering.*;
@@ -17,6 +16,8 @@ import java.util.*;
 
 public class TreeFeatureLearner implements FeatureLearner
 {
+    private static final double eigenDeltaThreshold = 0.0000001;
+
     private List<FeatureTree> trees;
 
     private Multiset<UUID> hitCounts;
@@ -70,7 +71,7 @@ public class TreeFeatureLearner implements FeatureLearner
 
     @Override
     public FeatureVector extract(InputSample input) {
-        int featureCount = 30;
+        int featureCount = 10;
 
         if (clusters.isEmpty()) {
             cluster(featureCount);
@@ -84,13 +85,18 @@ public class TreeFeatureLearner implements FeatureLearner
             hits[cluster]++;
         }
 
+        double activationProbability =
+                (double) trees.size() / clusters.size();
+
         boolean[] activations = new boolean[featureCount];
         for (int i = 0; i < featureCount; i++) {
             int clusterSize = clusterSizes.get(i);
+            double threshold = clusterSize * activationProbability;
 
             activations[i] =
 //                    hits[i] >= (clusterSize / 2);
-                hits[i] > 0;
+//                hits[i] > 0;
+                hits[i] >= threshold * 1.1;
         }
 
         return FeatureVector.create(activations);
@@ -134,25 +140,30 @@ public class TreeFeatureLearner implements FeatureLearner
             for (int j = 0; j < leaveIndexes.size(); j++) {
                 sum += similarityMatrix[i][j];
             }
-            normalizerMatrix[i][i] = sum;
+
+//            normalizerMatrix[i][i] = sum;
+            normalizerMatrix[i][i] = Math.pow(sum, -0.5);
         }
 
         RealMatrix sim = MatrixUtils.createRealMatrix(similarityMatrix);
         RealMatrix norm = MatrixUtils.createRealMatrix(normalizerMatrix);
 
-        RealMatrix normInverse = new LUDecomposition(norm).getSolver().getInverse();
-        RealMatrix randomWalkNormalizedLaplacian = normInverse.multiply(sim);
+//        RealMatrix normInverse = new LUDecomposition(norm).getSolver().getInverse();
+//        RealMatrix normalizedLaplacian = normInverse.multiply(sim);
+
+        RealMatrix normalizedLaplacian = norm.multiply(sim).multiply(norm);
+
 
         EigenDecomposition eigen;// = new EigenDecomposition(randomWalkNormalizedLaplacian);
         for (int i = 0;;) {
             Random random = new Random();
 
             try {
-                eigen = new EigenDecomposition(randomWalkNormalizedLaplacian);
+                eigen = new EigenDecomposition(normalizedLaplacian);
                 break;
             } catch (MaxCountExceededException ignored) {
                 int index = random.nextInt(leaveIndexes.size());
-                randomWalkNormalizedLaplacian.setEntry(
+                normalizedLaplacian.setEntry(
                         index, index, 1);
 
                 System.out.println("trying eingen decomp " + i++);
@@ -162,26 +173,44 @@ public class TreeFeatureLearner implements FeatureLearner
             }
         }
 
-        class FeatureLeaf extends DoublePoint {
-            public final UUID leaf;
-            public FeatureLeaf(double[] point, UUID leaf) {
-                super(point);
-                this.leaf = leaf;
+        int nextEigenIndex = 0;
+        SortedMap<Double, Integer> eigenValueIndexes = new TreeMap<>(Ordering.<Double>natural().reverse());
+        for (double eigenValue : eigen.getRealEigenvalues()) {
+            eigenValueIndexes.put(eigenValue, nextEigenIndex++);
+        }
+
+        double previousEigenValue = Double.NaN;
+        List<Integer> largestEigenValueIndexes = new ArrayList<>();
+        for (Map.Entry<Double, Integer> eigenValueIndex : eigenValueIndexes.entrySet()) {
+            if (Double.isNaN(previousEigenValue) || Math.abs(previousEigenValue - eigenValueIndex.getKey()) > eigenDeltaThreshold) {
+                largestEigenValueIndexes.add(eigenValueIndex.getValue());
+
+                if (largestEigenValueIndexes.size() >= featureCount) {
+                    break;
+                }
             }
 
-            @Override
-            public String toString() {
-                return leaf + "|" + super.toString();
-            }
+            previousEigenValue = eigenValueIndex.getKey();
         }
 
         List<FeatureLeaf> points = new ArrayList<>();
         for (Map.Entry<UUID, Integer> e : leaveIndexes.entrySet()) {
             int index = e.getValue();
+
+            double sumOfSquares = 0;
             double[] component = new double[featureCount];
             for (int k = 0; k < featureCount; k++) {
-                component[k] = eigen.getEigenvector(k).getEntry(index);
+                int eigenVectorIndex = largestEigenValueIndexes.get(k);
+                component[k] = eigen.getEigenvector(eigenVectorIndex).getEntry(index);
+                sumOfSquares += Math.pow(component[k], 2);
             }
+
+            double normalizer = Math.sqrt(sumOfSquares);
+
+            for (int k = 0; k < featureCount; k++) {
+                component[k] /= normalizer;
+            }
+
             points.add(new FeatureLeaf(component, e.getKey()));
         }
 
@@ -212,5 +241,20 @@ public class TreeFeatureLearner implements FeatureLearner
                 statisticalErrorPercent * quantity;
 
         return quantity - statisticalError;
+    }
+
+
+    private static class FeatureLeaf extends DoublePoint {
+        public final UUID leaf;
+
+        public FeatureLeaf(double[] point, UUID leaf) {
+            super(point);
+            this.leaf = leaf;
+        }
+
+        @Override
+        public String toString() {
+            return leaf + "|" + super.toString();
+        }
     }
 }
